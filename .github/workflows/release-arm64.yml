@@ -165,14 +165,6 @@ jobs:
           wget https://github.com/containerd/containerd/releases/download/v${version}/containerd-${version}-linux-amd64.tar.gz.sha256sum
           wget https://github.com/containerd/containerd/releases/download/v${version}/cri-containerd-cni-${version}-linux-amd64.tar.gz
           wget https://github.com/containerd/containerd/releases/download/v${version}/cri-containerd-cni-${version}-linux-amd64.tar.gz.sha256sum
-      - name: Catalog build assets for upload
-        id: catalog_github
-        run: |
-          _filenum=1
-          for f in `ls builds/builds-containerd`; do
-            echo "::set-output name=file${_filenum}::${f}"
-            let "_filenum+=1"
-          done
       - name: Create Release
         id: create_release
         uses: actions/create-release@v1.1.2
@@ -190,8 +182,8 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
         with:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./builds-containerd/${{ steps.catalog_github.outputs.file1 }}
-          asset_name: ${{ steps.catalog_github.outputs.file1 }}
+          asset_path: ./builds-containerd/containerd-${{ needs.check.outputs.stringver }}-linux-amd64.tar.gz
+          asset_name: containerd-${{ needs.check.outputs.stringver }}-linux-amd64.tar.gz
           asset_content_type: application/gzip
       - name: Upload Linux amd sha256 sum
         uses: actions/upload-release-asset@v1
@@ -199,8 +191,8 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
         with:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./builds-containerd/${{ steps.catalog_github.outputs.file2 }}
-          asset_name: ${{ steps.catalog_github.outputs.file2 }}
+          asset_path: ./builds-containerd/containerd-${{ needs.check.outputs.stringver }}-linux-amd64.tar.gz.sha256sum
+          asset_name: containerd-${{ needs.check.outputs.stringver }}-linux-amd64.tar.gz.sha256sum
           asset_content_type: text/plain
       - name: Upload Linux amd cri containerd tarball
         uses: actions/upload-release-asset@v1
@@ -208,8 +200,8 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
         with:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./builds-containerd/${{ steps.catalog_github.outputs.file3 }}
-          asset_name: ${{ steps.catalog_github.outputs.file3 }}
+          asset_path: ./builds-containerd/cri-containerd-cni-${{ needs.check.outputs.stringver }}-linux-amd64.tar.gz
+          asset_name: cri-containerd-cni-${{ needs.check.outputs.stringver }}-linux-amd64.tar.gz
           asset_content_type: application/gzip
       - name: Upload Linux amd cri sha256 sum
         uses: actions/upload-release-asset@v1
@@ -217,8 +209,8 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
         with:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./builds-containerd/${{ steps.catalog_github.outputs.file4 }}
-          asset_name: ${{ steps.catalog_github.outputs.file4 }}
+          asset_path: ./builds-containerd/cri-containerd-cni-${{ needs.check.outputs.stringver }}-linux-amd64.tar.gz.sha256sum
+          asset_name: cri-containerd-cni-${{ needs.check.outputs.stringver }}-linux-amd64.tar.gz.sha256sum
           asset_content_type: text/plain
 
       - name: Upload Linux arm containerd tarball
