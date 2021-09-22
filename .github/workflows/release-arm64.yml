@@ -93,7 +93,9 @@ jobs:
           CGO_ENABLED: 1
         shell: bash
         run: |
-          wget -c https://raw.githubusercontent.com/sealyun-market/containerd/main/Makefile.arm64
+          releasever=${{ github.ref }}
+          releasever="${releasever#refs/tags/}"
+          wget -c https://raw.githubusercontent.com/sealyun-market/containerd/$releasever/Makefile.arm64
           make -f Makefile.arm64 build
           make -f Makefile.arm64 binaries
           rm bin/containerd-stress*
