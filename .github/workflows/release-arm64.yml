@@ -66,7 +66,12 @@ jobs:
           echo "OS=${os}" >> $GITHUB_ENV
           echo "${{ github.workspace }}/bin" >> $GITHUB_PATH
           echo "GOARCH=arm64" >> $GITHUB_ENV
-
+      - name: Checkout containerd
+        uses: actions/checkout@v2
+        with:
+          repository: containerd/containerd
+          ref: ${{ github.ref }}
+          path: src/github.com/containerd/containerd
       - name: Install dependencies
         run: |
           sudo add-apt-repository "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports/ $(lsb_release -sc) main" || true
@@ -76,14 +81,15 @@ jobs:
           sudo apt-get install -y \
             crossbuild-essential-arm64 \
             libseccomp-dev:arm64
-
-      - name: Checkout containerd
-        uses: actions/checkout@v2
-        with:
-          repository: containerd/containerd
-          ref: ${{ github.ref }}
-          path: src/github.com/containerd/containerd
-
+          sudo apt-get install -y gperf
+#          sudo -E PATH=$PATH script/setup/install-seccomp
+#          sudo -E PATH=$PATH script/setup/install-runc
+#          sudo -E PATH=$PATH script/setup/install-cni $(grep containernetworking/plugins go.mod | awk '{print $2}')
+#          sudo -E PATH=$PATH script/setup/install-critools
+#          sudo add-apt-repository ppa:criu/ppa
+#          sudo apt-get update
+#          sudo apt-get install -y criu
+        working-directory: src/github.com/containerd/containerd
 
       - name: Make
         env:
@@ -93,9 +99,10 @@ jobs:
           CGO_ENABLED: 1
         shell: bash
         run: |
-          wget -c https://raw.githubusercontent.com/sealyun-market/containerd/main/Makefile.arm64
-          make -f Makefile.arm64 build
-          make -f Makefile.arm64 binaries
+          rm -rf Makefile
+          wget  https://raw.githubusercontent.com/sealyun-market/containerd/main/Makefile
+          make build
+          make binaries
           rm bin/containerd-stress*
           TARFILE="containerd-${RELEASE_VER#v}-${OS}-arm64.tar.gz"
           tar czf ${TARFILE} bin/
@@ -105,7 +112,7 @@ jobs:
       - name: Save build binaries
         uses: actions/upload-artifact@v2
         with:
-          name: containerd-binaries-${{ matrix.os }}
+          name: release-tars-${{ matrix.os }}
           path: src/github.com/containerd/containerd/*.tar.gz*
 
       - name: Make cri-containerd tar
@@ -122,13 +129,13 @@ jobs:
             sudo PATH=$PATH script/setup/install-seccomp
           fi
           sed -i s/FASTBUILD=true/FASTBUILD=/ script/setup/install-cni || true
-          make -f Makefile.arm64 cri-cni-release
+          make   cri-cni-release
         working-directory: src/github.com/containerd/containerd
 
       - name: Save cri-containerd binaries
         uses: actions/upload-artifact@v2
         with:
-          name: cri-containerd-binaries-${{ matrix.os }}
+          name: release-tars-${{ matrix.os }}
           path: src/github.com/containerd/containerd/releases/cri-containerd-cni-*.tar.gz*
 
   release:
@@ -142,110 +149,25 @@ jobs:
         uses: actions/download-artifact@v2
         with:
           path: builds
-      - name: Catalog build assets for upload
-        id: catalog
-        run: |
-          _filenum=1
-          for i in "ubuntu-18.04" "windows-2019"; do
-            for f in `ls builds/containerd-binaries-${i}`; do
-              echo "::set-output name=file${_filenum}::${f}"
-              let "_filenum+=1"
-            done
-            for f in `ls builds/cri-containerd-binaries-${i}`; do
-              echo "::set-output name=file${_filenum}::${f}"
-              let "_filenum+=1"
-            done
-          done
       - name: Download cri-containerd tar github
         shell: bash
         run: |
-          version=${{ needs.check.outputs.stringver }}
-          mkdir -p builds-containerd && cd builds-containerd
+          releasever=${{ github.ref }}
+          version="${releasever#refs/tags/v}"
+          mkdir -p release-tars-github && cd release-tars-github
           wget https://github.com/containerd/containerd/releases/download/v${version}/containerd-${version}-linux-amd64.tar.gz
           wget https://github.com/containerd/containerd/releases/download/v${version}/containerd-${version}-linux-amd64.tar.gz.sha256sum
           wget https://github.com/containerd/containerd/releases/download/v${version}/cri-containerd-cni-${version}-linux-amd64.tar.gz
           wget https://github.com/containerd/containerd/releases/download/v${version}/cri-containerd-cni-${version}-linux-amd64.tar.gz.sha256sum
+        working-directory: builds
       - name: Create Release
-        id: create_release
-        uses: actions/create-release@v1.1.2
-        env:
-          GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
+        uses: softprops/action-gh-release@v1
         with:
-          tag_name: ${{ github.ref }}
-          release_name: containerd ${{ needs.check.outputs.stringver }}
-          body_path: ./builds/containerd-release-notes/release-notes.md
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fail_on_unmatched_files: true
+          name: containerd ${{ needs.check.outputs.stringver }}
           draft: false
           prerelease: ${{ contains(github.ref, 'beta') || contains(github.ref, 'rc') }}
-      - name: Upload Linux amd containerd tarball
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./builds-containerd/containerd-${{ needs.check.outputs.stringver }}-linux-amd64.tar.gz
-          asset_name: containerd-${{ needs.check.outputs.stringver }}-linux-amd64.tar.gz
-          asset_content_type: application/gzip
-      - name: Upload Linux amd sha256 sum
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./builds-containerd/containerd-${{ needs.check.outputs.stringver }}-linux-amd64.tar.gz.sha256sum
-          asset_name: containerd-${{ needs.check.outputs.stringver }}-linux-amd64.tar.gz.sha256sum
-          asset_content_type: text/plain
-      - name: Upload Linux amd cri containerd tarball
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./builds-containerd/cri-containerd-cni-${{ needs.check.outputs.stringver }}-linux-amd64.tar.gz
-          asset_name: cri-containerd-cni-${{ needs.check.outputs.stringver }}-linux-amd64.tar.gz
-          asset_content_type: application/gzip
-      - name: Upload Linux amd cri sha256 sum
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./builds-containerd/cri-containerd-cni-${{ needs.check.outputs.stringver }}-linux-amd64.tar.gz.sha256sum
-          asset_name: cri-containerd-cni-${{ needs.check.outputs.stringver }}-linux-amd64.tar.gz.sha256sum
-          asset_content_type: text/plain
-
-      - name: Upload Linux arm containerd tarball
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./builds/containerd-binaries-ubuntu-18.04/${{ steps.catalog.outputs.file1 }}
-          asset_name: ${{ steps.catalog.outputs.file1 }}
-          asset_content_type: application/gzip
-      - name: Upload Linux arm sha256 sum
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./builds/containerd-binaries-ubuntu-18.04/${{ steps.catalog.outputs.file2 }}
-          asset_name: ${{ steps.catalog.outputs.file2 }}
-          asset_content_type: text/plain
-      - name: Upload Linux arm cri containerd tarball
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./builds/cri-containerd-binaries-ubuntu-18.04/${{ steps.catalog.outputs.file3 }}
-          asset_name: ${{ steps.catalog.outputs.file3 }}
-          asset_content_type: application/gzip
-      - name: Upload Linux arm cri sha256 sum
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./builds/cri-containerd-binaries-ubuntu-18.04/${{ steps.catalog.outputs.file4 }}
-          asset_name: ${{ steps.catalog.outputs.file4 }}
-          asset_content_type: text/plain
+          body_path: ./builds/containerd-release-notes/release-notes.md
+          files: |
+            builds/release-tars-**/*
